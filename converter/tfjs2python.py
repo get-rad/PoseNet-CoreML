@@ -10,10 +10,18 @@ import sys
 f = open("config.yaml", "r+")
 cfg = yaml.load(f)
 checkpoints = cfg['checkpoints']
-imageSize = cfg['imageSize']
+height, width = cfg['imageSize']
 chk = cfg['chk']
 outputStride = cfg['outputStride']
 chkpoint = checkpoints[chk]
+
+def posenet_stride_compatible_dims(h, w, stride):
+    h = stride * (h // stride) + 1
+    w = stride * (w // stride) + 1
+    return h, w
+
+height, width = posenet_stride_compatible_dims(height, width, outputStride)
+print("Input image shape", height, width)
 
 if chkpoint == 'mobilenet_v1_050':
     mobileNetArchitectures = cfg['mobileNet50Architecture']
@@ -21,9 +29,6 @@ elif chkpoint == 'mobilenet_v1_075':
     mobileNetArchitectures = cfg['mobileNet75Architecture']
 else:
     mobileNetArchitectures = cfg['mobileNet100Architecture']
-
-width = imageSize
-height = imageSize
 
 def toOutputStridedLayers(convolutionDefinition, outputStride):
     currentStride = 1
@@ -120,13 +125,13 @@ def separableConv(inputs, stride, blockID, dilations):
     return w
 
 
-image = tf.placeholder(tf.float32, shape=[1, imageSize, imageSize, 3],name='image')
+image = tf.placeholder(tf.float32, shape=[1, height, width, 3],name='image')
 
 x = image
 rate = [1,1]
 buff = []
 # conv_res = {}
-with tf.variable_scope(None, 'MobilenetV1'):
+with tf.variable_scope(None, 'Posenet'):
     
     for m in layers:
         strinde = [1,m['stride'],m['stride'],1]
@@ -144,7 +149,11 @@ heatmaps = convToOutput(x, 'heatmap_2')
 offsets = convToOutput(x, 'offset_2')
 displacementFwd = convToOutput(x, 'displacement_fwd_2')
 displacementBwd = convToOutput(x, 'displacement_bwd_2')
-heatmaps = tf.sigmoid(heatmaps,'heatmap')
+
+heatmaps = tf.sigmoid(heatmaps, "heatmaps")
+offsets = tf.identity(offsets, "offsets")
+displacementFwd = tf.identity(displacementFwd, "disp_fwd")
+displacementBwd = tf.identity(displacementBwd, "disp_bwd")
 
 init = tf.global_variables_initializer()
 saver = tf.train.Saver()
@@ -154,14 +163,15 @@ with tf.Session() as sess:
     saver = tf.train.Saver()
 
     ans = sess.run([heatmaps,offsets,displacementFwd,displacementBwd], feed_dict={
-            image: [np.ndarray(shape=(width, height, 3),dtype=np.float32)]
+            image: [np.ndarray(shape=(height, width, 3),dtype=np.float32)]
         }
     )
 
-    save_dir = './checkpoints'
+    depth_multiplier = chkpoint[-3:]
+    save_dir = os.path.join("checkpoints", "posenet%s_%s" % (depth_multiplier, outputStride))
     save_path = os.path.join(save_dir, 'model.ckpt')
-    # if not os.path.exists(save_dir):
-        # os.mkdir(save_dir)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
     save_path = saver.save(sess, save_path)
 
     tf.train.write_graph(sess.graph,"./models/","model.pbtxt")
@@ -169,38 +179,38 @@ with tf.Session() as sess:
     # Result
     input_image = read_imgfile("./images/tennis_in_crowd.jpg",width,height)
     input_image = np.array(input_image,dtype=np.float32)
-    input_image = input_image.reshape(1,width,height,3)
+    input_image = input_image.reshape(1,height,width,3)
     mobileNetOutput = sess.run(x, feed_dict={ image: input_image } )
 
     heatmaps_result,offsets_result,displacementFwd_result,displacementBwd_result = sess.run(
         [heatmaps,offsets,displacementFwd,displacementBwd], feed_dict={ image: input_image } )
 
-    print(input_image)
-    print(input_image.shape)
-    print(np.mean(input_image))
+    #print(input_image)
+    #print(input_image.shape)
+    #print(np.mean(input_image))
 
     count = 0
     for b in buff:
         conv_result = sess.run(b, feed_dict={ image: input_image } )
-        print("========")
-        print(count)
-        print(conv_result[0:1, 0:1, :])
-        print(conv_result.shape)
-        print(np.mean(conv_result))
+        #print("========")
+        #print(count)
+        #print(conv_result[0:1, 0:1, :])
+        #print(conv_result.shape)
+        #print(np.mean(conv_result))
         count += 1
 
 
-    print("========")
-    print("mobileNetOutput")
-    print(mobileNetOutput[0:1, 0:1, :])
-    print(mobileNetOutput.shape)
-    print(np.mean(mobileNetOutput))
+    #print("========")
+    #print("mobileNetOutput")
+    #print(mobileNetOutput[0:1, 0:1, :])
+    #print(mobileNetOutput.shape)
+    #print(np.mean(mobileNetOutput))
     
     heatmaps_result = heatmaps_result[0]
 
-    print("========")
-    print("heatmaps")
-    print(heatmaps_result[0:1, 0:1, :])
-    print(heatmaps_result.shape)
-    print(np.mean(heatmaps_result))
+    #print("========")
+    #print("heatmaps")
+    #print(heatmaps_result[0:1, 0:1, :])
+    #print(heatmaps_result.shape)
+    #print(np.mean(heatmaps_result))
     
