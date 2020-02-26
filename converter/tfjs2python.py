@@ -83,18 +83,15 @@ def read_imgfile(path, width, height):
     return img
 
 def convToOutput(mobileNetOutput, outputLayerName):
-    w = tf.nn.conv2d(mobileNetOutput,weights(outputLayerName),[1,1,1,1],padding='SAME')
-    w = tf.nn.bias_add(w,biases(outputLayerName), name=outputLayerName)
+    w = tf.nn.conv2d(mobileNetOutput,weights(outputLayerName),[1,1,1,1],padding='SAME', data_format="NCHW")
+    w = tf.nn.bias_add(w,biases(outputLayerName), name=outputLayerName, data_format="NCHW")
     return w
 
 def conv(inputs, stride, blockId):
-    # w = tf.nn.conv2d(inputs,weights("Conv2d_" + str(blockId)), stride, padding='SAME')
-    # w = tf.nn.bias_add(w,biases("Conv2d_" + str(blockId)))
-    # w = tf.nn.relu6(w)
-    # return w
-    return tf.nn.relu6(
-        tf.nn.conv2d(inputs,weights("Conv2d_" + str(blockId)), stride, padding='SAME') 
-        + biases("Conv2d_" + str(blockId)))
+    w = tf.nn.conv2d(inputs,weights("Conv2d_" + str(blockId)), stride, padding='SAME', data_format="NCHW")
+    w = tf.nn.bias_add(w,biases("Conv2d_" + str(blockId)), data_format="NCHW")
+    w = tf.nn.relu6(w)
+    return w
 
 def weights(layerName):
     return variables["MobilenetV1/" + layerName + "/weights"]['x']
@@ -112,18 +109,18 @@ def separableConv(inputs, stride, blockID, dilations):
     dwLayer = "Conv2d_" + str(blockID) + "_depthwise"
     pwLayer = "Conv2d_" + str(blockID) + "_pointwise"
     
-    w = tf.nn.depthwise_conv2d(inputs,depthwiseWeights(dwLayer),stride, 'SAME',rate=dilations, data_format='NHWC')
-    w = tf.nn.bias_add(w,biases(dwLayer))
+    w = tf.nn.depthwise_conv2d(inputs,depthwiseWeights(dwLayer),stride, 'SAME',rate=dilations, data_format='NCHW')
+    w = tf.nn.bias_add(w,biases(dwLayer), data_format="NCHW")
     w = tf.nn.relu6(w)
 
-    w = tf.nn.conv2d(w,weights(pwLayer), [1,1,1,1], padding='SAME')
-    w = tf.nn.bias_add(w,biases(pwLayer))
+    w = tf.nn.conv2d(w,weights(pwLayer), [1,1,1,1], padding='SAME', data_format="NCHW")
+    w = tf.nn.bias_add(w,biases(pwLayer), data_format="NCHW")
     w = tf.nn.relu6(w)
 
     return w
 
 
-image = tf.placeholder(tf.float32, shape=[1, height, width, 3],name='image')
+image = tf.placeholder(tf.float32, shape=[1, 3, height, width], name='image')
 
 x = image
 rate = [1,1]
@@ -161,7 +158,7 @@ with tf.Session() as sess:
     saver = tf.train.Saver()
 
     ans = sess.run([heatmaps,offsets,displacementFwd,displacementBwd], feed_dict={
-            image: [np.ndarray(shape=(height, width, 3),dtype=np.float32)]
+            image: [np.ndarray(shape=(3, height, width),dtype=np.float32)]
         }
     )
 
