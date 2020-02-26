@@ -1,3 +1,5 @@
+from tensorflow.python.framework import graph_io
+from tensorflow.python.framework import graph_util
 import json
 import struct
 import tensorflow as tf
@@ -80,6 +82,7 @@ def read_imgfile(path, width, height):
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img = img.astype(float)
     img = img * (2.0 / 255.0) - 1.0
+    img = img.transpose((2,0,1))
     return img
 
 def convToOutput(mobileNetOutput, outputLayerName):
@@ -109,7 +112,12 @@ def separableConv(inputs, stride, blockID, dilations):
     dwLayer = "Conv2d_" + str(blockID) + "_depthwise"
     pwLayer = "Conv2d_" + str(blockID) + "_pointwise"
     
-    w = tf.nn.depthwise_conv2d(inputs,depthwiseWeights(dwLayer),stride, 'SAME',rate=dilations, data_format='NCHW')
+    w = tf.nn.depthwise_conv2d_native(inputs,
+                                      depthwiseWeights(dwLayer),
+                                      stride,
+                                      'SAME',
+                                      dilations=dilations,
+                                      data_format='NCHW')
     w = tf.nn.bias_add(w,biases(dwLayer), data_format="NCHW")
     w = tf.nn.relu6(w)
 
@@ -120,7 +128,7 @@ def separableConv(inputs, stride, blockID, dilations):
     return w
 
 
-image = tf.placeholder(tf.float32, shape=[1, 3, height, width], name='image')
+image = tf.placeholder(tf.float32, shape=[1, 3, height, width], name="frame")
 
 x = image
 rate = [1,1]
@@ -129,8 +137,8 @@ buff = []
 with tf.variable_scope(None, 'Posenet'):
     
     for m in layers:
-        strinde = [1,m['stride'],m['stride'],1]
-        rate = [m['rate'],m['rate']]
+        strinde = [1, 1, m['stride'], m['stride']]
+        rate = [1, 1, m['rate'],m['rate']]
         if (m['convType'] == "conv2d"):
             x = conv(x,strinde,m['blockId'])
             buff.append(x)
@@ -140,15 +148,15 @@ with tf.variable_scope(None, 'Posenet'):
 
 # x = tf.identity(x, name="output")
 
-heatmaps = convToOutput(x, 'heatmap_2')
-offsets = convToOutput(x, 'offset_2')
-displacementFwd = convToOutput(x, 'displacement_fwd_2')
-displacementBwd = convToOutput(x, 'displacement_bwd_2')
+    heatmaps = convToOutput(x, 'heatmap_2')
+    offsets = convToOutput(x, 'offset_2')
+    displacementFwd = convToOutput(x, 'displacement_fwd_2')
+    displacementBwd = convToOutput(x, 'displacement_bwd_2')
 
-heatmaps = tf.sigmoid(heatmaps, "heatmaps")
-offsets = tf.identity(offsets, "offsets")
-displacementFwd = tf.identity(displacementFwd, "disp_fwd")
-displacementBwd = tf.identity(displacementBwd, "disp_bwd")
+    heatmaps = tf.sigmoid(heatmaps, "heatmaps")
+    offsets = tf.identity(offsets, "offsets")
+    displacementFwd = tf.identity(displacementFwd, "disp_fwd")
+    displacementBwd = tf.identity(displacementBwd, "disp_bwd")
 
 init = tf.global_variables_initializer()
 saver = tf.train.Saver()
@@ -171,10 +179,13 @@ with tf.Session() as sess:
 
     tf.train.write_graph(sess.graph,"./models/","model.pbtxt")
 
+    output_names = ["Posenet/heatmaps", "Posenet/offsets", "Posenet/disp_fwd", "Posenet/disp_bwd"]
+    frozen_graph = graph_util.convert_variables_to_constants(sess, sess.graph.as_graph_def(), output_names)
+    graph_io.write_graph(frozen_graph, save_dir, "posenet_frozen.pb", as_text=False)
+    graph_io.write_graph(frozen_graph, save_dir, "posenet_frozen.pbtxt", as_text=True)
+
     # Result
-    input_image = read_imgfile("./images/tennis_in_crowd.jpg",width,height)
-    input_image = np.array(input_image,dtype=np.float32)
-    input_image = input_image.reshape(1,height,width,3)
+    input_image = read_imgfile("./images/tennis_in_crowd.jpg",width,height)[np.newaxis]
     mobileNetOutput = sess.run(x, feed_dict={ image: input_image } )
 
     heatmaps_result,offsets_result,displacementFwd_result,displacementBwd_result = sess.run(
