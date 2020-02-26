@@ -13,9 +13,15 @@ GOOGLE_CLOUD_STORAGE_DIR = cfg['GOOGLE_CLOUD_STORAGE_DIR']
 checkpoints = cfg['checkpoints']
 chk = cfg['chk']
 
+# using os.path.join on Windows to build URLs is wrong because
+# the resulting URLs contain backward slashes
+def urljoin(*args):
+    return '/'.join(s.strip('/') for s in args)
+
+
 def download(chkpoint,filename):
 
-    url = os.path.join(GOOGLE_CLOUD_STORAGE_DIR , chkpoint , filename)
+    url = urljoin(GOOGLE_CLOUD_STORAGE_DIR , chkpoint , filename)
 
     urllib.request.urlretrieve(url, os.path.join('./waits/' , chkpoint , filename))
 
