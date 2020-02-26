@@ -70,11 +70,9 @@ for x in variables:
     filename = variables[x]["filename"]
     byte = open( os.path.join('./waits/', chkpoint, filename),'rb').read()
     fmt = str (int (len(byte) / struct.calcsize('f'))) + 'f'
-    d = struct.unpack(fmt, byte) 
-    # d = np.array(d,dtype=np.float32)
-    d = tf.cast(d, tf.float32)
-    d = tf.reshape(d,variables[x]["shape"])
-    variables[x]["x"] = tf.Variable(d,name=x)
+    d = struct.unpack(fmt, byte)
+    d = np.array(d, dtype=np.float32).reshape(variables[x]["shape"])
+    variables[x]["x"] = tf.Variable(d, name=x)
 
 def read_imgfile(path, width, height):
     img = cv2.imread(path)
